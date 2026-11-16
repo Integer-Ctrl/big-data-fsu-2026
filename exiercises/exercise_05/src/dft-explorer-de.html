@@ -1,0 +1,1211 @@
+<meta charset="utf-8">
+<title>DFT-Explorer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one reading column; in each figure the time-domain plot and the frequency-domain
+   plot sit side by side (stacked on narrow screens). Blue always means time domain,
+   amber always means frequency domain. Sampled signals are drawn as dots. */
+:root {
+  --bg: #f2f4f8;
+  --surface: #ffffff;
+  --ink: #17212f;
+  --muted: #586579;
+  --line: #d6dce6;
+  --grid: #e6eaf1;
+  --time: #2257c9;
+  --freq: #b85f00;
+  --pos: #23875a;
+  --neg: #c9463d;
+  --harm-l: 42%;
+  --font-display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #171e28; --ink: #e7ecf3; --muted: #97a4b6;
+    --line: #2b3545; --grid: #222b38; --time: #74a4ff; --freq: #f0a445; --pos: #5cc48a; --neg: #f07f76;
+    --harm-l: 66%; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #171e28; --ink: #e7ecf3; --muted: #97a4b6;
+  --line: #2b3545; --grid: #222b38; --time: #74a4ff; --freq: #f0a445; --pos: #5cc48a; --neg: #f07f76;
+  --harm-l: 66%; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.55;
+  padding-block: 0 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.modebar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 0; margin-bottom: -20px; }
+.page[data-mode="c"] .d-only, .page[data-mode="d"] .c-only { display: none !important; }
+section { scroll-margin-top: 64px; }
+.wrap { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.formula .int { font-size: 1.5em; vertical-align: -0.18em; margin: 0 0.08em; }
+.page { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+h1, h2 { font-family: var(--font-display); font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); line-height: 1.1; }
+h2 { font-size: clamp(1.3rem, 2.4vw, 1.6rem); line-height: 1.2; }
+p { margin: 0; }
+sub, sup { line-height: 0; }
+.lede { max-width: 64ch; font-size: 1.08rem; color: var(--muted); }
+.lede b { font-weight: 600; }
+.t { color: var(--time); } .f { color: var(--freq); }
+header, section { display: flex; flex-direction: column; gap: 16px; }
+.intro { max-width: 70ch; color: var(--muted); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+.field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.field > label, .lbl { font-size: 0.86rem; color: var(--muted); }
+output, .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 0.86rem; }
+input[type="range"] { accent-color: var(--time); width: 180px; max-width: 100%; }
+input[type="checkbox"] { accent-color: var(--time); width: 16px; height: 16px; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); align-self: flex-start; }
+.seg button { border: 0; border-right: 1px solid var(--line); border-radius: 0; background: transparent; }
+.seg button:last-child { border-right: 0; }
+button {
+  font: 500 0.9rem var(--font-body); color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 13px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+.seg button:hover { background: var(--grid); }
+button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.seg button[aria-pressed="true"]:hover { background: var(--ink); }
+:focus-visible { outline: 2px solid var(--time); outline-offset: 2px; }
+
+.plots { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+.views { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 16px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 8px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.panel p { font-size: 0.9rem; color: var(--muted); padding: 0 4px 6px; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.domain { font: 500 0.74rem var(--font-data); text-transform: uppercase; letter-spacing: 0.09em; }
+.hint { font-size: 0.8rem; color: var(--muted); }
+canvas { display: block; width: 100%; height: 280px; }
+#view3d { height: 420px; }
+#phasePlot { height: 250px; }
+#sampT, #sampF { height: 240px; }
+#zPlot { height: 360px; }
+.formulas { display: flex; flex-wrap: wrap; gap: 4px 48px; }
+.euler { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+#hSig { height: 170px; }
+#hProdS, #hProdC { height: 140px; }
+#hSpec { cursor: pointer; }
+#hProbe, #hProbe2 { accent-color: var(--freq); width: 240px; }
+.panel > .field { padding: 0 4px 6px; }
+.status .num { font-size: 1.3rem; font-weight: 500; margin-right: 8px; }
+#specA { touch-action: none; cursor: ns-resize; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.8rem; color: var(--muted); }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
+.legend i.dash { border-top-style: dashed; }
+.legend i.box { height: 10px; border: 0; border-radius: 2px; opacity: 0.55; }
+.legend i.pt { width: 8px; height: 8px; border: 0; border-radius: 50%; }
+
+.note { border-left: 3px solid var(--freq); padding: 2px 0 2px 14px; max-width: 74ch; }
+.stat { font-family: var(--font-data); font-size: 0.86rem; color: var(--muted); }
+.status { font-weight: 500; max-width: 74ch; min-height: 3.1em; }
+
+.mixer { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.comp { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) 5ch; gap: 6px 10px; align-items: center; background: var(--surface); }
+.comp .check { grid-column: 1 / -1; font-weight: 500; }
+.comp input[type="range"] { width: 100%; }
+.comp output { text-align: right; }
+.comp .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.viewrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.viewrow input[type="range"] { flex: 1 1 180px; width: auto; min-width: 120px; accent-color: var(--muted); }
+.caption { max-width: 74ch; min-height: 6.2em; font-size: 1.02rem; }
+.translate { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px 32px; max-width: 900px; margin: 0; }
+.translate dt { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; }
+.translate dd { margin: 4px 0 0; color: var(--muted); }
+.translate .arrow { font: 500 0.74rem var(--font-data); text-transform: uppercase; letter-spacing: 0.09em; display: block; margin-bottom: 2px; }
+.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.formula { font-family: "STIX Two Math", "Cambria Math", "Times New Roman", serif; font-size: clamp(1.4rem, 4vw, 2rem); line-height: 1.3; overflow-x: auto; white-space: nowrap; padding: 4px 0; }
+.formula i { font-style: italic; }
+.formula .sum { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; margin: 0 0.15em; line-height: 1; }
+.formula .sum small { font-size: 0.42em; line-height: 1.2; }
+.formula .sum span { font-size: 1.5em; }
+.formula.small { font-size: clamp(1.05rem, 2.8vw, 1.45rem); }
+.trig { border-left: 3px solid var(--freq); padding: 2px 0 2px 14px; max-width: 78ch; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.formula .rot { color: var(--freq); }
+.parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 28px; margin: 0; padding: 0; list-style: none; max-width: 980px; }
+.parts b { display: block; font-family: var(--font-display); font-weight: 600; }
+.parts span { color: var(--muted); font-size: 0.95rem; }
+.readout { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; font-family: var(--font-data); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.readout b { font-weight: 500; color: var(--freq); font-size: 1.15rem; }
+#sampFs { accent-color: var(--freq); }
+.bullets { max-width: 74ch; margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 8px; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
+
+@media (max-width: 860px) {
+  .plots, .views { grid-template-columns: minmax(0, 1fr); }
+  canvas { height: 240px; }
+  #view3d { height: 340px; }
+  #phasePlot, #sampT, #sampF { height: 200px; }
+  .euler { grid-template-columns: minmax(0, 1fr); }
+  #zPlot { height: 320px; }
+  #hSig { height: 160px; }
+  #hProdS, #hProdC { height: 130px; }
+}
+</style>
+
+<div class="page" id="page" data-mode="c">
+
+<div class="modebar">
+  <span class="lbl" id="lbl-mode">Darstellung</span>
+  <div class="seg" role="group" aria-labelledby="lbl-mode">
+    <button type="button" id="mode-c" aria-pressed="true">Kontinuierlich (Fourier-Transformation)</button>
+    <button type="button" id="mode-d" aria-pressed="false">Diskret (DFT)</button>
+  </div>
+</div>
+
+<header>
+  <h1>DFT-Explorer</h1>
+  <p class="lede">Jedes Signal lässt sich auf zwei Arten beschreiben: als Verlauf über der <b class="t">Zeit</b> oder als Rezept aus Sinusschwingungen verschiedener <b class="f">Frequenz</b>. Die Fourier-Transformation übersetzt zwischen beiden Beschreibungen. <span class="d-only">Für abgetastete Signale, wie sie ein Rechner verarbeitet, heißt sie diskrete Fourier-Transformation (DFT).</span><span class="c-only">Diese Darstellung zeigt den kontinuierlichen Fall: Signale als durchgehende Verläufe, wie in der Theorie. Für abgetastete Signale, wie sie ein Rechner verarbeitet, oben auf &bdquo;Diskret (DFT)&ldquo; umschalten.</span></p>
+</header>
+
+<section aria-labelledby="h-views">
+  <h2 id="h-views">Ein Signal, zwei Ansichten</h2>
+  <p class="intro">Die vier Schritte der Reihe nach durchgehen. Schritt 2 fügt der ersten Schwingung zwei weitere hinzu. Ab dann zeigt die Abbildung immer dasselbe Signal, nur der Blickwinkel ändert sich.</p>
+
+  <div class="seg" role="group" aria-label="Schritte" id="stepSeg">
+    <button type="button" id="step-1" data-step="1" aria-pressed="true">1 &middot; Eine Sinusschwingung</button>
+    <button type="button" id="step-2" data-step="2" aria-pressed="false">2 &middot; Ein Gemisch</button>
+    <button type="button" id="step-3" data-step="3" aria-pressed="false">3 &middot; Nach Frequenz sortieren</button>
+    <button type="button" id="step-4" data-step="4" aria-pressed="false">4 &middot; Von der Seite</button>
+  </div>
+  <p class="caption" id="stepCaption" aria-live="polite"></p>
+
+  <div class="views">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="domain t" id="viewName">Zeitbereich</span>
+        <span class="legend">
+          <span class="d-only"><i class="pt" style="background:var(--time)"></i>gemessenes Signal (Abtastwerte)</span>
+          <span class="d-only"><i style="border-color:var(--time);border-top-width:4px"></i>tatsächlicher Verlauf</span>
+          <span class="c-only"><i style="border-color:var(--time);border-top-width:4px"></i>gemessenes Signal</span>
+          <span><i style="border-color:var(--muted)"></i>enthaltene Sinusschwingungen (eine Farbe je Frequenz)</span>
+          <span><i class="box" style="background:var(--muted);width:6px;height:12px"></i>Amplitude je Schwingung</span>
+        </span>
+      </div>
+      <canvas id="view3d" role="img" aria-label="Ein Signal und die Sinusschwingungen, aus denen es besteht, nach Frequenz sortiert. Von vorn ist es ein Verlauf über der Zeit, von der Seite ein Balken pro Frequenz."></canvas>
+      <div class="viewrow">
+        <button type="button" id="toTime">&larr; Zeitbereich</button>
+        <input type="range" id="viewSlider" min="0" max="90" step="1" value="0" aria-label="Blickrichtung, vom Zeitbereich zum Frequenzbereich">
+        <button type="button" id="toFreq">Frequenzbereich &rarr;</button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="domain f">Frequenzbereich &middot; Phase</span>
+      </div>
+      <canvas id="phasePlot" role="img" aria-label="Phase jeder Sinusschwingung in Grad, aufgetragen über ihrer Frequenz."></canvas>
+      <p>Die Balken der Frequenzansicht (Schritt 4) zeigen nur die Amplitude jeder Schwingung. Die <b>Phase</b> gibt an, an welcher Stelle ihrer Periode eine Schwingung beginnt, also wie weit sie entlang der Zeitachse verschoben ist. Ein Phasenregler unten ändert die Balken nicht, wohl aber die Form des blauen Signals (solange jede Frequenz nur einmal vorkommt; zwei Schwingungen gleicher Frequenz verschmelzen zu einer). Ein vollständiges Spektrum besteht deshalb aus zwei Teilen: Amplitude und Phase. Die Phase ist hier auf einen Sinus bezogen: Bei 0&deg; beginnt die Schwingung mit einem ansteigenden Nulldurchgang.</p>
+    </div>
+  </div>
+
+  <div class="mixer" id="mixer"></div>
+  <p class="note" id="mergeNote" aria-live="polite" hidden></p>
+</section>
+
+<hr class="d-only">
+
+<section aria-labelledby="h-samp" class="d-only">
+  <h2 id="h-samp">Abtastfrequenz: Der Rechner sieht nur Punkte</h2>
+  <p class="intro">Ein Messgerät speichert kein durchgehendes Signal, sondern liest in festen Abständen einen Wert ab. Die <b>Abtastfrequenz</b> f<sub>s</sub> gibt an, wie viele Werte pro Sekunde das sind. Ist sie zu niedrig, passen die Punkte genauso gut zu einer langsameren Schwingung, und genau diese falsche Frequenz erscheint dann im Spektrum.</p>
+
+  <div class="controls">
+    <div class="field">
+      <label for="sampSig">Signalfrequenz</label>
+      <input type="range" id="sampSig" min="1" max="15" step="1" value="6">
+      <output id="sampSigOut" for="sampSig">6 Hz</output>
+    </div>
+    <div class="field">
+      <label for="sampFs">Abtastfrequenz f<sub>s</sub></label>
+      <input type="range" id="sampFs" min="4" max="32" step="1" value="8">
+      <output id="sampFsOut" for="sampFs">8 Hz</output>
+    </div>
+  </div>
+
+  <div class="plots">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="domain t">Zeitbereich</span>
+        <span class="legend">
+          <span><i style="border-color:var(--time);opacity:.5"></i>tatsächliches Signal</span>
+          <span><i class="pt" style="background:var(--time)"></i>Abtastwerte</span>
+          <span><i class="dash" style="border-color:var(--freq)"></i>was die Punkte scheinbar zeigen</span>
+        </span>
+      </div>
+      <canvas id="sampT" role="img" aria-label="Eine Sinusschwingung über eine Sekunde mit ihren Abtastwerten. Bei zu niedriger Abtastfrequenz ist zusätzlich die langsamere Schwingung eingezeichnet, die durch dieselben Punkte geht."></canvas>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="domain f">Frequenzbereich</span>
+        <span class="legend">
+          <span><i class="dash" style="border-color:var(--time)"></i>tatsächliche Frequenz</span>
+          <span><i class="box" style="background:var(--freq);opacity:1;width:6px;height:12px"></i>gemessene Frequenz</span>
+        </span>
+      </div>
+      <canvas id="sampF" role="img" aria-label="Frequenzachse von 0 bis 16 Hertz mit der tatsächlichen und der gemessenen Frequenz. Der Bereich oberhalb der halben Abtastfrequenz ist grau hinterlegt."></canvas>
+    </div>
+  </div>
+
+  <p class="status" id="sampStatus" aria-live="polite"></p>
+  <ul class="bullets">
+    <li><b>Abtasttheorem:</b> f<sub>s</sub> muss mehr als doppelt so hoch sein wie die höchste Frequenz im Signal. Die Grenze f<sub>s</sub>/2 heißt Nyquist-Frequenz. Frequenzen darunter werden richtig erfasst, alles darüber wird in den Bereich unter f<sub>s</sub>/2 zurückgespiegelt (Aliasing).</li>
+    <li><b>Frequenzauflösung:</b> Werden N Abtastwerte aufgenommen, dauert die Messung T&nbsp;=&nbsp;N/f<sub>s</sub>. Der Abstand benachbarter Balken im Spektrum ist &Delta;f&nbsp;=&nbsp;f<sub>s</sub>/N&nbsp;=&nbsp;1/T, er hängt also nur von der Messdauer ab. Länger messen ergibt eine feinere Auflösung, schneller abtasten einen größeren Frequenzbereich.</li>
+    <li>In der ersten Abbildung (&bdquo;Ein Signal, zwei Ansichten&ldquo;) und im Abschnitt &bdquo;Wie die DFT jeden Balken findet&ldquo; gilt f<sub>s</sub>&nbsp;=&nbsp;32&nbsp;Hz und N&nbsp;=&nbsp;32. Das ergibt T&nbsp;=&nbsp;1&nbsp;s, einen Balkenabstand von 1&nbsp;Hz und eine Nyquist-Frequenz von 16&nbsp;Hz.</li>
+  </ul>
+</section>
+
+<hr>
+
+<section aria-labelledby="h-trans">
+  <h2 id="h-trans">Zwischen beiden Ansichten übersetzen</h2>
+  <div class="wrap d-only">
+  <dl class="translate">
+    <div>
+      <dt><span class="arrow"><span class="t">Zeit</span> &rarr; <span class="f">Frequenz</span></span>Diskrete Fourier-Transformation (DFT)</dt>
+      <dd>Das Signal zerlegen: Aus N Abtastwerten wird berechnet, welche Sinusschwingungen zusammen genau diese Werte ergeben, jeweils mit Frequenz, Amplitude und Phase. Das Ergebnis heißt Spektrum.</dd>
+    </div>
+    <div>
+      <dt><span class="arrow"><span class="f">Frequenz</span> &rarr; <span class="t">Zeit</span></span>Inverse DFT</dt>
+      <dd>Das Signal wieder zusammensetzen: Jede Schwingung des Spektrums wird an den Abtastzeitpunkten ausgewertet und alles addiert. Heraus kommen die ursprünglichen Abtastwerte.</dd>
+    </div>
+  </dl>
+  <p class="intro">Beide Richtungen sind exakt, es geht keine Information verloren: N Abtastwerte hinein, N unabhängige Zahlen (Amplituden und Phasen) heraus. Man kann also immer in der Ansicht arbeiten, in der das Problem einfacher ist, und danach zurückübersetzen.</p>
+  </div>
+  <div class="wrap c-only">
+  <dl class="translate">
+    <div>
+      <dt><span class="arrow"><span class="t">Zeit</span> &rarr; <span class="f">Frequenz</span></span>Fourier-Transformation</dt>
+      <dd>Das Signal zerlegen: Es wird bestimmt, welche Sinusschwingungen zusammen genau diesen Verlauf ergeben, jeweils mit Frequenz, Amplitude und Phase. Das Ergebnis heißt Spektrum.</dd>
+    </div>
+    <div>
+      <dt><span class="arrow"><span class="f">Frequenz</span> &rarr; <span class="t">Zeit</span></span>Inverse Fourier-Transformation</dt>
+      <dd>Das Signal wieder zusammensetzen: Jede Schwingung des Spektrums wird gezeichnet und alles Zeitpunkt für Zeitpunkt addiert. Heraus kommt der ursprüngliche Verlauf.</dd>
+    </div>
+  </dl>
+  <p class="intro">Beide Richtungen sind exakt, es geht keine Information verloren. Man kann also immer in der Ansicht arbeiten, in der das Problem einfacher ist, und danach zurückübersetzen. Die Beispiele hier bestehen aus wenigen einzelnen Schwingungen. Ein allgemeines Signal enthält dagegen ein durchgehendes Band von Frequenzen, sein Spektrum ist dann eine Kurve statt einzelner Balken.</p>
+  </div>
+</section>
+
+<hr>
+
+<section aria-labelledby="h-how">
+  <h2 id="h-how"><span class="d-only">Wie die DFT jeden Balken findet</span><span class="c-only">Wie die Transformation jeden Balken findet</span></h2>
+  <p class="intro">Für jede Testfrequenz wird das Signal mit zwei Testschwingungen verglichen, einem Kosinus und einem Sinus: <span class="d-only">Abtastwert für Abtastwert multiplizieren, dann alles aufsummieren.</span><span class="c-only">Punkt für Punkt multiplizieren, dann die Fläche unter dem Produkt bestimmen.</span> Enthält das Signal diese Frequenz, bleibt in mindestens einem der beiden Vergleiche ein großer Rest. Enthält es sie nicht, heben sich positive und negative <span class="d-only">Produkte</span><span class="c-only">Flächen</span> gegenseitig auf.</p>
+
+  <div class="formulas d-only">
+    <p class="formula small" aria-label="C von k gleich Summe über n von x von n mal Kosinus von zwei pi k n durch N"><i>C</i>[<i>k</i>] = <span class="sum"><span>&Sigma;</span></span> <span class="t"><i>x</i>[<i>n</i>]</span> &middot; <span class="rot">cos(2&pi;<i>kn</i>/<i>N</i>)</span></p>
+    <p class="formula small" aria-label="S von k gleich Summe über n von x von n mal Sinus von zwei pi k n durch N"><i>S</i>[<i>k</i>] = <span class="sum"><span>&Sigma;</span></span> <span class="t"><i>x</i>[<i>n</i>]</span> &middot; <span class="rot">sin(2&pi;<i>kn</i>/<i>N</i>)</span></p>
+  </div>
+  <div class="formulas c-only">
+    <p class="formula small" aria-label="C von f gleich Integral x von t mal Kosinus von zwei pi f t d t"><i>C</i>(<i>f</i>) = <span class="sum"><small><i>T</i></small><span>&int;</span><small>0</small></span> <span class="t"><i>x</i>(<i>t</i>)</span> &middot; <span class="rot">cos(2&pi;<i>ft</i>)</span> d<i>t</i></p>
+    <p class="formula small" aria-label="S von f gleich Integral x von t mal Sinus von zwei pi f t d t"><i>S</i>(<i>f</i>) = <span class="sum"><small><i>T</i></small><span>&int;</span><small>0</small></span> <span class="t"><i>x</i>(<i>t</i>)</span> &middot; <span class="rot">sin(2&pi;<i>ft</i>)</span> d<i>t</i></p>
+  </div>
+  <p class="intro"><span class="t">Blau</span> ist das Signal aus der ersten Abbildung. <span class="f">Orange</span> sind die beiden Testschwingungen. <span class="d-only">Die Testfrequenz k steht für k&nbsp;&middot;&nbsp;f<sub>s</sub>/N, hier also k&nbsp;Hz.</span><span class="c-only">Ausgewertet wird eine Messdauer von T&nbsp;=&nbsp;1&nbsp;s.</span></p>
+
+  <div class="controls">
+    <button type="button" id="hToMixer">&uarr; Signal ändern (Regler der ersten Abbildung)</button>
+    <div class="field">
+      <label for="hNoise">Rauschen hinzufügen</label>
+      <input type="range" id="hNoise" min="0" max="1.5" step="0.05" value="0">
+      <output id="hNoiseOut" for="hNoise">0,00</output>
+    </div>
+  </div>
+
+  <div class="plots">
+    <div class="stack">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="domain t">Zeitbereich</span>
+          <span class="legend">
+            <span><i style="border-color:var(--time)"></i>Signal</span>
+            <span><i style="border-color:var(--freq)"></i>Sinus-Test</span>
+            <span><i class="dash" style="border-color:var(--freq)"></i>Kosinus-Test</span>
+          </span>
+        </div>
+        <canvas id="hSig" role="img" aria-label="Das Signal aus der ersten Abbildung über eine Sekunde, darüber die beiden Testschwingungen."></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="domain">Signal &times; Sinus</span>
+          <span class="legend">
+            <span><i class="box" style="background:var(--pos)"></i>positive <span class="d-only">Produkte</span><span class="c-only">Fläche</span></span>
+            <span><i class="box" style="background:var(--neg)"></i>negative <span class="d-only">Produkte</span><span class="c-only">Fläche</span></span>
+          </span>
+        </div>
+        <canvas id="hProdS" role="img" aria-label="Das Produkt aus Signal und Sinus-Testschwingung, positive und negative Werte farbig unterschieden."></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="domain">Signal &times; Kosinus</span>
+        </div>
+        <canvas id="hProdC" role="img" aria-label="Das Produkt aus Signal und Kosinus-Testschwingung, positive und negative Werte farbig unterschieden."></canvas>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="domain f">Frequenzbereich &middot; Amplitude</span>
+          <span class="hint">Balken anklicken, um diese Frequenz zu testen</span>
+        </div>
+        <canvas id="hSpec" role="img" aria-label="Frequenzbereich: Amplitude jeder Frequenz von 1 bis 12 Hertz im Signal."></canvas>
+      </div>
+      <div class="controls">
+        <div class="field">
+          <label for="hProbe">Testfrequenz</label>
+          <input type="range" id="hProbe" min="1" max="12" step="1" value="3">
+          <output id="hProbeOut" for="hProbe">3 Hz</output>
+        </div>
+        <button type="button" id="hSweep" aria-pressed="false">Alle Frequenzen durchlaufen</button>
+      </div>
+      <div class="readout" aria-live="off">
+        <span>Sinus-Anteil <b id="hS">0,00</b></span>
+        <span>Kosinus-Anteil <b id="hC">0,00</b></span>
+        <span>Amplitude <b id="hMatch">0,00</b></span>
+        <span>Phase <b id="hPh">0&deg;</b></span>
+      </div>
+      <p class="status" id="hText" aria-live="polite"></p>
+      <p class="hint">Sinus- und Kosinus-Anteil sind die beiden <span class="d-only">Summen, jeweils multipliziert mit 2/N</span><span class="c-only">Flächen über die Messdauer T, jeweils multipliziert mit 2/T</span>. Zusammen ergeben sie nach Pythagoras die Amplitude, also die Höhe des Balkens, und ihr Verhältnis die Phase. Zwei Vergleiche sind nötig, weil die Phase vorher nicht bekannt ist: Bei 0&deg; steckt alles im Sinus-Anteil, bei 90&deg; alles im Kosinus-Anteil. Dass sich nicht enthaltene Frequenzen exakt aufheben, gilt, weil hier jede Schwingung ganzzahlig oft in die Messdauer passt. Mit Rauschen enthält jeder Balken zusätzlich einen Rauschanteil; je mehr Werte aufsummiert werden, desto kleiner fällt er aus.</p>
+    </div>
+  </div>
+
+  <div class="euler">
+    <div class="trig">
+      <p><b>Dasselbe in Euler-Schreibweise.</b> In Lehrbüchern steht meist nur eine einzige Formel:</p>
+      <p class="formula small d-only" aria-label="X von k gleich Summe über n von 0 bis N minus 1 von x von n mal e hoch minus i zwei pi k n durch N"><i>X</i>[<i>k</i>] = <span class="sum"><small><i>N</i>&minus;1</small><span>&Sigma;</span><small><i>n</i>=0</small></span> <span class="t"><i>x</i>[<i>n</i>]</span> &middot; <span class="rot"><i>e</i><sup>&minus;i2&pi;<i>kn</i>/<i>N</i></sup></span> = <i>C</i>[<i>k</i>] &minus; i&thinsp;<i>S</i>[<i>k</i>]</p>
+      <p class="formula small c-only" aria-label="X von f gleich Integral von x von t mal e hoch minus i zwei pi f t d t"><i>X</i>(<i>f</i>) = <span class="sum"><small><i>T</i></small><span>&int;</span><small>0</small></span> <span class="t"><i>x</i>(<i>t</i>)</span> &middot; <span class="rot"><i>e</i><sup>&minus;i2&pi;<i>ft</i></sup></span> d<i>t</i> = <i>C</i>(<i>f</i>) &minus; i&thinsp;<i>S</i>(<i>f</i>)</p>
+      <p>Wegen <i>e</i><sup>&minus;i&phi;</sup> = cos&nbsp;&phi; &minus; i&nbsp;sin&nbsp;&phi; ist das genau die Rechnung von oben. Die komplexe Zahl fasst lediglich beide Vergleiche zusammen: Bis auf den Faktor <span class="d-only">2/N</span><span class="c-only">2/T</span> ist der Kosinus-Anteil ihr Realteil und der Sinus-Anteil mit Minuszeichen ihr Imaginärteil. Die e-Funktion macht die Formel kurz, die trigonometrische Schreibweise zeigt, was gerechnet wird.</p>
+      <p><b>Als Bild.</b> <span class="d-only"><i>e</i><sup>&minus;i2&pi;<i>kn</i>/<i>N</i></sup> ist ein Zeiger der Länge 1, der sich über die N Abtastwerte hinweg k-mal im Kreis dreht. Jeder Abtastwert wird mit der aktuellen Stellung dieses Zeigers multipliziert und landet so als Punkt in der komplexen Ebene: Die Richtung gibt der Zeiger vor, den Abstand zur Mitte der Wert des Signals (negative Werte zeigen in die Gegenrichtung). X[k] ist die Summe all dieser Punkte; geteilt durch N ergibt sie ihren Schwerpunkt.</span><span class="c-only"><i>e</i><sup>&minus;i2&pi;<i>ft</i></sup> ist ein Zeiger der Länge 1, der sich f-mal pro Sekunde im Kreis dreht. Das Signal wird zu jedem Zeitpunkt mit der aktuellen Stellung dieses Zeigers multipliziert und zeichnet so eine Kurve in der komplexen Ebene: Die Richtung gibt der Zeiger vor, den Abstand zur Mitte der Wert des Signals (negative Werte zeigen in die Gegenrichtung). X(f) ist die Summe über alle Punkte dieser Kurve, also das Integral; geteilt durch die Messdauer T ergibt sie ihren Schwerpunkt.</span></p>
+      <p>Kommt die Testfrequenz im Signal nicht vor, liegen die Punkte ausgewogen um die Mitte und ihr Schwerpunkt fällt genau auf die Mitte. Kommt sie vor, zeigen die großen Signalwerte immer wieder in dieselbe Richtung, die Punkte häufen sich auf einer Seite und der Schwerpunkt wandert nach außen.</p>
+      <p class="hint">Der Abstand des Schwerpunkts zur Mitte ist die halbe Amplitude, weil sich jede Schwingung eines reellen Signals auf <span class="d-only">k und N&nbsp;&minus;&nbsp;k</span><span class="c-only">+f und &minus;f</span> aufteilt. Sein Winkel ist die Phase bezogen auf einen Kosinus und deshalb um 90&deg; kleiner als die oben angezeigte, auf einen Sinus bezogene Phase.</p>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="domain">Signal &times; rotierender Zeiger</span>
+        <span class="legend">
+          <span class="d-only"><i class="pt" style="background:var(--time)"></i>x[n] &middot; e<sup>&minus;i2&pi;kn/N</sup></span>
+          <span class="c-only"><i style="border-color:var(--time)"></i>x(t) &middot; e<sup>&minus;i2&pi;ft</sup></span>
+          <span><i style="border-color:var(--freq)"></i>Schwerpunkt = <span class="d-only">X[k]/N</span><span class="c-only">X(f)/T</span></span>
+        </span>
+      </div>
+      <canvas id="zPlot" role="img" aria-label="Das Signal, mit dem rotierenden Zeiger der aktuellen Testfrequenz multipliziert, als Punkte oder Kurve in der komplexen Ebene. Der Schwerpunkt ist markiert."></canvas>
+      <div class="field">
+        <label for="hProbe2">Testfrequenz</label>
+        <input type="range" id="hProbe2" min="1" max="12" step="1" value="3">
+        <output id="hProbe2Out" for="hProbe2">3 Hz</output>
+      </div>
+    </div>
+  </div>
+
+  <div class="trig d-only">
+    <p><b>Was das mit der FFT zu tun hat.</b> Genau dieser Vergleich ist die DFT: für jede Testfrequenz das Signal Abtastwert für Abtastwert mit einer Sinus- und einer Kosinusschwingung multiplizieren und aufsummieren. Die Schaltfläche &bdquo;Alle Frequenzen durchlaufen&ldquo; macht das für 1 bis 12&nbsp;Hz, eine Frequenz nach der anderen. Direkt gerechnet sind das rund N&sup2; Multiplikationen.</p>
+    <p>Die FFT (Fast Fourier Transform) liefert exakt dieselben Balken, sie ist nur geschickter organisiert. Weil sich Sinus und Kosinus periodisch wiederholen, kommen viele Produkte bei verschiedenen Testfrequenzen mehrfach vor. Die FFT teilt das Signal deshalb immer wieder in die Abtastwerte mit geradem und mit ungeradem Index, also in jeden zweiten Wert (am einfachsten, wenn N eine Zweierpotenz ist), berechnet jedes Teilergebnis nur einmal und setzt daraus alle Balken zusammen. So genügen etwa N&nbsp;&middot;&nbsp;log<sub>2</sub>&nbsp;N Schritte: bei N&nbsp;=&nbsp;1024 rund 10&nbsp;000 statt einer Million.</p>
+    <p>Dieser Abschnitt zeigt also, <em>was</em> die FFT berechnet. Wie sie die Rechnung abkürzt, ändert am Ergebnis nichts.</p>
+  </div>
+</section>
+
+<hr>
+
+<section aria-labelledby="h-build">
+  <h2 id="h-build">Ausprobieren: ein Signal aus Sinusschwingungen bauen</h2>
+  <p class="intro">Das ist die inverse Transformation (Rücktransformation) von Hand. Eine Zielform wählen und Schritt für Schritt Sinusschwingungen hinzufügen. Jeder Balken rechts ist eine Schwingung, seine Höhe ihre Amplitude. Links nähert sich die Summe dem Ziel. Die Phasen sind hier fest vorgegeben (0&deg; oder 180&deg;) und nicht dargestellt. &bdquo;Anhören&ldquo; spielt die Summe 220-mal schneller ab, aus 1&nbsp;Hz wird 220&nbsp;Hz. <span class="d-only">Dieser Abschnitt zeigt auch in der diskreten Darstellung durchgehende Kurven: Um Schwingungen bis 31&nbsp;Hz abzutasten, wäre eine Abtastfrequenz von mehr als 62&nbsp;Hz nötig.</span></p>
+
+  <div class="controls">
+    <div class="field">
+      <span class="lbl" id="lbl-shape">Zielform</span>
+      <div class="seg" role="group" aria-labelledby="lbl-shape" id="shapeSeg">
+        <button type="button" id="shape-square" data-shape="square" aria-pressed="true">Rechteck</button>
+        <button type="button" id="shape-saw" data-shape="saw" aria-pressed="false">Sägezahn</button>
+        <button type="button" id="shape-tri" data-shape="tri" aria-pressed="false">Dreieck</button>
+        <button type="button" id="shape-own" data-shape="own" aria-pressed="false">Eigenes Signal</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="kSlider">Sinusschwingungen bis</label>
+      <input type="range" id="kSlider" min="1" max="31" step="1" value="5">
+      <output id="kOut" for="kSlider">5 Hz</output>
+    </div>
+    <div class="field">
+      <button type="button" id="stepBtn" aria-pressed="false">Nacheinander hinzufügen</button>
+      <button type="button" id="soundBtn" aria-pressed="false">Anhören</button>
+      <button type="button" id="clearBtn" hidden>Alle Balken löschen</button>
+    </div>
+    <label class="check"><input type="checkbox" id="partsChk" checked> Einzelne Schwingungen anzeigen</label>
+  </div>
+
+  <div class="plots">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="domain t">Zeitbereich</span>
+        <span class="legend">
+          <span><i style="border-color:var(--time)"></i>Summe aller Schwingungen</span>
+          <span id="legTarget"><i class="dash" style="border-color:var(--muted)"></i>Ziel</span>
+        </span>
+      </div>
+      <canvas id="timeA" role="img" aria-label="Zeitbereich: die Summe der gewählten Sinusschwingungen über zwei Sekunden, bei gewählter Zielform im Vergleich zu dieser."></canvas>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="domain f">Frequenzbereich</span>
+        <span class="hint">Balken ziehen, um die Amplitude zu ändern</span>
+      </div>
+      <canvas id="specA" tabindex="0" role="application" aria-label="Frequenzbereich: ein Balken pro Sinusschwingung von 1 bis 31 Hertz. Pfeiltasten links und rechts wählen einen Balken, Pfeiltasten hoch und runter ändern seine Amplitude."></canvas>
+    </div>
+  </div>
+
+  <p class="stat" id="statA"></p>
+  <p class="note" id="noteA"></p>
+</section>
+
+<hr>
+
+<section aria-labelledby="h-take">
+  <h2 id="h-take">Zum Mitnehmen</h2>
+  <ul class="bullets">
+    <li>Der <b class="t">Zeitbereich</b> zeigt, was das Signal zu jedem Zeitpunkt tut. Der <b class="f">Frequenzbereich</b> zeigt, aus welchen Sinusschwingungen es besteht. Beides beschreibt dasselbe Signal.</li>
+    <li>Jede Sinusschwingung hat drei Kennzahlen: Frequenz, Amplitude und Phase. Ein vollständiges Spektrum zeigt Amplitude und Phase für jede Frequenz.</li>
+    <li class="d-only">Die Abtastfrequenz bestimmt, bis zu welcher Frequenz ein Signal richtig erfasst wird (unterhalb von f<sub>s</sub>/2). Höhere Frequenzen erscheinen als falsche, tiefere Frequenz (Aliasing). Die Messdauer bestimmt die Frequenzauflösung (1/T).</li>
+    <li class="d-only">Die DFT zerlegt N Abtastwerte in Sinusschwingungen. Die inverse DFT addiert sie wieder zum Signal.</li>
+    <li class="c-only">Die Fourier-Transformation zerlegt ein Signal in Sinusschwingungen. Die inverse Transformation addiert sie wieder zum Signal.</li>
+    <li class="d-only">Die DFT vergleicht das Signal für jede Frequenz mit einem Sinus und einem Kosinus. Die FFT berechnet dasselbe, nur viel schneller.</li>
+    <li class="c-only">Die Transformation vergleicht das Signal für jede Frequenz mit einem Sinus und einem Kosinus.</li>
+    <li>Scharfe Kanten und schnelle Änderungen brauchen hohe Frequenzen. Glatte Signale kommen mit wenigen tiefen aus.</li>
+  </ul>
+</section>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  document.documentElement.lang = 'de';
+  var TAU = Math.PI * 2;
+  var $ = function (id) { return document.getElementById(id); };
+  function num(v, d) { return v.toFixed(d).replace('.', ',').replace('-', '−'); }
+  function tick(v) { return String(v).replace('.', ',').replace('-', '−'); }
+  var MODE = 'c', curStep = 1;   // 'd' = diskret (DFT), 'c' = kontinuierlich
+  var C = {};
+  function readColors() {
+    var cs = getComputedStyle(document.documentElement);
+    ['bg', 'surface', 'ink', 'muted', 'line', 'grid', 'time', 'freq', 'pos', 'neg', 'harm-l'].forEach(function (n) {
+      C[n] = cs.getPropertyValue('--' + n).trim();
+    });
+  }
+  function hcolor(k) { return 'hsl(' + ((340 + (k - 1) * 47) % 360) + ' 68% ' + C['harm-l'] + ')'; }
+  var FONT = '11px "IBM Plex Mono", ui-monospace, monospace';
+
+  function prep(canvas) {
+    var dpr = window.devicePixelRatio || 1;
+    var r = canvas.getBoundingClientRect();
+    var w = Math.max(50, r.width), h = Math.max(50, r.height);
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    }
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = FONT;
+    return { ctx: ctx, w: w, h: h };
+  }
+  var PAD = { l: 42, r: 10, t: 10, b: 24 };
+
+  function axes(g, x0, x1, y0, y1, xTicks, yTicks) {
+    var ctx = g.ctx;
+    var pw = g.w - PAD.l - PAD.r, ph = g.h - PAD.t - PAD.b;
+    var X = function (v) { return PAD.l + (v - x0) / (x1 - x0) * pw; };
+    var Y = function (v) { return PAD.t + (1 - (v - y0) / (y1 - y0)) * ph; };
+    ctx.lineWidth = 1;
+    ctx.fillStyle = C.muted;
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
+    yTicks.forEach(function (t) {
+      var y = Math.round(Y(t.v)) + 0.5;
+      ctx.strokeStyle = t.v === 0 ? C.line : C.grid;
+      ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(g.w - PAD.r, y); ctx.stroke();
+      ctx.fillText(t.label, PAD.l - 6, y);
+    });
+    ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+    xTicks.forEach(function (t) {   // Beschriftung am rechten Rand nicht abschneiden
+      var half = ctx.measureText(t.label).width / 2;
+      ctx.fillText(t.label, Math.min(X(t.v), g.w - half - 1), g.h - PAD.b + 7);
+    });
+    return { X: X, Y: Y, pw: pw, ph: ph };
+  }
+  function ticks(list, unit) {
+    return list.map(function (v, i) { return { v: v, label: tick(v) + (unit && (unit.all || i === list.length - 1) ? unit.s : '') }; });
+  }
+  function curve(ctx, ax, fn, x0, x1, n) {
+    ctx.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var x = x0 + (x1 - x0) * i / n;
+      var px = ax.X(x), py = ax.Y(fn(x));
+      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
+  }
+  function dot(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); }
+
+  /* ---------------- Ein Signal, zwei Ansichten ---------------- */
+  var FS = 32, NS = 32;          // Abtastfrequenz und Anzahl Abtastwerte: T = 1 s, Balkenabstand 1 Hz
+  var FM = 8;
+  var W = { waves: [{ on: true, f: 1, a: 1, ph: 0 }, { on: false, f: 3, a: 0.35, ph: 0 }, { on: false, f: 5, a: 0.2, ph: 0 }], th: 0 };
+  var MIX = [[1, 1, 1], [1, 3, 0.35], [1, 5, 0.2]];
+  var STEPS = {
+    1: { waves: [[1, 1, 1], [0, 3, 0.35], [0, 5, 0.2]], deg: 0,
+         text: { d: 'Das ist eine Sinusschwingung über der Zeit, so wie sie ein Oszilloskop zeigt. Die blaue Linie ist der tatsächliche Verlauf. Der Rechner kennt davon nur einzelne Abtastwerte, hier 32\u00a0Punkte pro Sekunde. Drei Zahlen beschreiben die Schwingung vollständig: ihre <b>Frequenz</b> (Schwingungen pro Sekunde), ihre <b>Amplitude</b> und ihre <b>Phase</b> (an welcher Stelle der Periode sie beginnt). Die Regler unter der Abbildung ändern alle drei.',
+                 c: 'Das ist eine Sinusschwingung über der Zeit, so wie sie ein Oszilloskop zeigt. Drei Zahlen beschreiben sie vollständig: ihre <b>Frequenz</b> (Schwingungen pro Sekunde), ihre <b>Amplitude</b> und ihre <b>Phase</b> (an welcher Stelle der Periode sie beginnt). Die Regler unter der Abbildung ändern alle drei.' } },
+    2: { waves: MIX, deg: 0,
+         text: { d: 'Echte Signale sind ein Gemisch. Die blauen Punkte sind das, was gemessen wird: zu jedem Abtastzeitpunkt die Summe aller Schwingungen. Die Linie dahinter ist der tatsächliche Verlauf. In dieser Ansicht, dem <b class="t">Zeitbereich</b>, sind die Zutaten zu einem einzigen Verlauf verwoben und kaum auseinanderzuhalten.',
+                 c: 'Echte Signale sind ein Gemisch. Die blaue Kurve ist das, was tatsächlich gemessen wird: zu jedem Zeitpunkt die Summe aller Schwingungen. In dieser Ansicht, dem <b class="t">Zeitbereich</b>, sind die Zutaten zu einem einzigen Verlauf verwoben und kaum auseinanderzuhalten.' } },
+    3: { deg: 38,
+         text: 'Jetzt werden die Zutaten entlang einer neuen Achse sortiert, die in den Bildschirm hineinzeigt: langsame Schwingungen vorn, schnelle hinten. Am Signal hat sich nichts geändert. Seine Sinusschwingungen liegen nur hintereinander statt übereinander.' },
+    4: { deg: 90,
+         text: { d: 'Dieselbe Anordnung von der Seite: Jede Schwingung schrumpft zu einem einzigen Balken. Seine Position ist die Frequenz, seine Höhe die Amplitude. Das ist der <b class="f">Frequenzbereich</b>, alle Balken zusammen heißen Spektrum. Aus 32\u00a0Abtastwerten sind wenige Balken geworden.',
+                 c: 'Dieselbe Anordnung von der Seite: Jede Schwingung schrumpft zu einem einzigen Balken. Seine Position ist die Frequenz, seine Höhe die Amplitude. Das ist der <b class="f">Frequenzbereich</b>, alle Balken zusammen heißen Spektrum. Aus einer Kurve mit unendlich vielen Punkten sind wenige Balken geworden.' } }
+  };
+  var mixer = $('mixer');
+  W.waves.forEach(function (c, i) {
+    var d = document.createElement('div'); d.className = 'comp';
+    d.innerHTML =
+      '<label class="check"><input type="checkbox" id="w' + i + 'on"> <i class="dot" id="w' + i + 'dot"></i> Sinusschwingung ' + (i + 1) + '</label>' +
+      '<label class="lbl" for="w' + i + 'f">Frequenz</label><input type="range" id="w' + i + 'f" min="1" max="' + FM + '" step="1"><output id="w' + i + 'fo"></output>' +
+      '<label class="lbl" for="w' + i + 'a">Amplitude</label><input type="range" id="w' + i + 'a" min="0" max="1" step="0.05"><output id="w' + i + 'ao"></output>' +
+      '<label class="lbl" for="w' + i + 'p">Phase</label><input type="range" id="w' + i + 'p" min="-165" max="180" step="15"><output id="w' + i + 'po"></output>';
+    mixer.appendChild(d);
+    $('w' + i + 'on').addEventListener('change', function () { c.on = this.checked; syncW(); });
+    $('w' + i + 'f').addEventListener('input', function () { c.f = +this.value; syncW(); });
+    $('w' + i + 'a').addEventListener('input', function () { c.a = +this.value; syncW(); });
+    $('w' + i + 'p').addEventListener('input', function () { c.ph = +this.value; syncW(); });
+  });
+  function syncW() {
+    W.waves.forEach(function (c, i) {
+      $('w' + i + 'on').checked = c.on; $('w' + i + 'f').value = c.f; $('w' + i + 'a').value = c.a; $('w' + i + 'p').value = c.ph;
+      $('w' + i + 'fo').textContent = c.f + ' Hz'; $('w' + i + 'ao').textContent = num(c.a, 2); $('w' + i + 'po').textContent = tick(c.ph) + '°';
+    });
+    mergeNote();
+    H.dirty = true; schedule();
+  }
+  function sameFreq() {   // aktive Schwingungen, nach Frequenz gesammelt
+    var m = {};
+    W.waves.forEach(function (w, i) { if (w.on && w.a > 0) (m[w.f] = m[w.f] || []).push({ w: w, nr: i + 1 }); });
+    return m;
+  }
+  function mergeNote() {
+    var m = sameFreq(), parts = [], anySum = false;
+    Object.keys(m).forEach(function (f) {
+      var list = m[f]; if (list.length < 2) return;
+      var re = 0, im = 0;
+      list.forEach(function (e) { var p = e.w.ph * Math.PI / 180; re += e.w.a * Math.cos(p); im += e.w.a * Math.sin(p); });
+      var a = Math.hypot(re, im), nrs = list.map(function (e) { return e.nr; });
+      var names = 'Die Sinusschwingungen ' + nrs.slice(0, -1).join(', ') + ' und ' + nrs[nrs.length - 1];
+      parts.push(names + ' haben dieselbe Frequenz (' + f + ' Hz). Sinusschwingungen gleicher Frequenz ergeben zusammen stets wieder eine einzige Sinusschwingung dieser Frequenz' +
+        (a > 1e-6
+          ? ', hier mit Amplitude ' + num(a, 2) + ' und Phase ' + tick(Math.round(Math.atan2(Math.abs(im) < 1e-9 ? 0 : im, re) * 180 / Math.PI)) + '°.'
+          : '. Hier löschen sie sich gegenseitig vollständig aus, es bleibt kein Balken übrig.'));
+      if (a > 1e-6) anySum = true;
+    });
+    var el = $('mergeNote');
+    el.hidden = !parts.length;
+    el.textContent = parts.length
+      ? parts.join(' ') + ' Im Spektrum gibt es deshalb pro Frequenz nur einen Balken und eine Phase, und die Phasenregler ändern in diesem Fall auch die Höhe des Balkens. In der Abbildung sind die einzelnen Schwingungen gestrichelt gezeichnet' + (anySum ? ', ihre Summe durchgezogen.' : '.')
+      : '';
+  }
+  function setWaves(list) { list.forEach(function (c, i) { W.waves[i].on = !!c[0]; W.waves[i].f = c[1]; W.waves[i].a = c[2]; W.waves[i].ph = c[3] || 0; }); syncW(); }
+  function groups() {   // Schwingungen gleicher Frequenz addieren sich zu einer
+    var re = {}, im = {}, out = [];
+    W.waves.forEach(function (w) {
+      if (!w.on || w.a <= 0) return;
+      var p = w.ph * Math.PI / 180;
+      re[w.f] = (re[w.f] || 0) + w.a * Math.cos(p); im[w.f] = (im[w.f] || 0) + w.a * Math.sin(p);
+    });
+    for (var f = FM; f >= 1; f--) if (f in re) {
+      var a = Math.hypot(re[f], im[f]);
+      if (a > 1e-6) out.push({ f: f, a: a, ph: Math.atan2(Math.abs(im[f]) < 1e-9 ? 0 : im[f], re[f]) });
+    }
+    return out;
+  }
+  function sigAt(gs, t) {
+    var v = 0;
+    for (var i = 0; i < gs.length; i++) v += gs[i].a * Math.sin(TAU * gs[i].f * t + gs[i].ph);
+    return v;
+  }
+  function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+  function draw3D() {
+    var g = prep($('view3d')), ctx = g.ctx;
+    W.waves.forEach(function (w, i) { $('w' + i + 'dot').style.background = hcolor(w.f); });
+    var pl = 18, pr = 18, pt = 12, pb = 30;
+    var pw = g.w - pl - pr, ph = g.h - pt - pb, cx = pl + pw / 2, cy = pt + ph / 2;
+    var th = W.th, c = Math.cos(th), s = Math.sin(th);
+    var gs = groups(), total = 0; gs.forEach(function (q) { total += q.a; });
+    var ymax = Math.max(1.3, total * 1.05);
+    var KL = 0.14;
+    var sx = (pw / 2) / (c + s), lift = KL * Math.sin(2 * th) * sx;
+    var sy = Math.max(20, ph / 2 - KL * pw / 2) / ymax;
+    var frontA = clamp01(c * 1.7), sideA = clamp01(s * 1.7);
+    function P(x, y, z) { return [cx + (x * c + z * s) * sx, cy - y * sy - (-x * s + z * c) * lift]; }
+    function zOf(f) { return -0.7 + f / FM * 1.7; }
+    function line(a, b) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+    function wave(fn, z) {
+      ctx.beginPath();
+      for (var i = 0; i <= 320; i++) { var t = i / 320, p = P(2 * t - 1, fn(t), z); if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }
+      ctx.stroke();
+    }
+    ctx.lineJoin = 'round'; ctx.lineWidth = 1;
+    ctx.strokeStyle = C.grid;
+    [[-1, -1, 1, -1], [1, -1, 1, 1], [1, 1, -1, 1], [-1, 1, -1, -1]].forEach(function (e) { line(P(e[0], -ymax, e[1]), P(e[2], -ymax, e[3])); });
+    for (var f = 1; f <= FM; f++) line(P(-1, 0, zOf(f)), P(1, 0, zOf(f)));
+    ctx.strokeStyle = C.line;
+    line(P(-1, 0, -1), P(1, 0, -1));
+    ctx.globalAlpha = sideA;
+    line(P(1, 0, zOf(0.4)), P(1, 0, 1));
+    ctx.strokeStyle = C.grid;
+    for (var yv = 0.5; yv <= ymax; yv += 0.5) line(P(1, yv, zOf(0.4)), P(1, yv, 1));
+    ctx.globalAlpha = 1;
+    // einzelne Sinusschwingungen, von hinten nach vorn
+    var same = sameFreq(), fade = 1 - 0.72 * clamp01((s - 0.75) * 4);
+    Object.keys(same).forEach(function (fk) {   // gleiche Frequenz: die einzelnen Schwingungen gestrichelt
+      if (same[fk].length < 2) return;
+      ctx.strokeStyle = hcolor(+fk); ctx.lineWidth = 1.3; ctx.globalAlpha = 0.8 * fade; ctx.setLineDash([5, 4]);
+      same[fk].forEach(function (e) {
+        wave(function (t) { return e.w.a * Math.sin(TAU * e.w.f * t + e.w.ph * Math.PI / 180); }, zOf(+fk));
+      });
+      ctx.setLineDash([]);
+    });
+    gs.forEach(function (q) {
+      ctx.strokeStyle = hcolor(q.f); ctx.lineWidth = 1.6; ctx.globalAlpha = 1 - 0.72 * clamp01((s - 0.75) * 4);
+      wave(function (t) { return q.a * Math.sin(TAU * q.f * t + q.ph); }, zOf(q.f));
+    });
+    // das gemessene Signal: Abtastwerte, vorn
+    ctx.strokeStyle = C.time; ctx.fillStyle = C.time;
+    ctx.globalAlpha = frontA; ctx.lineWidth = 4;
+    wave(function (t) { return sigAt(gs, t); }, -1);
+    var rd = Math.max(4, Math.min(6, pw / 130));
+    ctx.strokeStyle = C.surface; ctx.lineWidth = 1.75;
+    for (var n = 0; MODE === 'd' && n < NS; n++) { var t = n / FS, p = P(2 * t - 1, sigAt(gs, t), -1); dot(ctx, p[0], p[1], rd); ctx.stroke(); }
+    // ein Balken pro Schwingung an der Seitenwand
+    ctx.globalAlpha = sideA; ctx.lineWidth = 4 + 9 * s * Math.min(1, pw / 700);
+    gs.forEach(function (q) { ctx.strokeStyle = hcolor(q.f); line(P(1, 0, zOf(q.f)), P(1, q.a, zOf(q.f))); });
+    // Beschriftung
+    ctx.fillStyle = C.muted; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+    ctx.globalAlpha = sideA;
+    for (f = 1; f <= FM; f++) { p = P(1, -ymax, zOf(f)); ctx.fillText(f + (f === FM && pw > 420 ? ' Hz' : ''), p[0], p[1] + 7); }
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (yv = 0.5; yv <= ymax; yv += 0.5) { p = P(1, yv, zOf(0.4)); ctx.fillText(tick(yv), p[0] - 5, p[1]); }
+    ctx.globalAlpha = frontA; ctx.textBaseline = 'top';
+    [0, 0.5, 1].forEach(function (tt) {
+      var q = P(2 * tt - 1, -ymax, -1); ctx.textAlign = tt === 0 ? 'left' : tt === 1 ? 'right' : 'center';
+      ctx.fillText(tick(tt) + ' s', q[0], q[1] + 7);
+    });
+    ctx.globalAlpha = 1;
+    var deg = th * 180 / Math.PI, nm = $('viewName');
+    nm.textContent = deg < 8 ? 'Zeitbereich' : deg > 82 ? 'Frequenzbereich · Amplitude' : 'Zwischen beiden Ansichten';
+    nm.className = 'domain' + (deg < 8 ? ' t' : deg > 82 ? ' f' : '');
+  }
+  var viewAnim = null;
+  function setView(deg) { W.th = deg * Math.PI / 180; $('viewSlider').value = Math.round(deg); schedule(); }
+  function animateView(target) {
+    if (viewAnim) cancelAnimationFrame(viewAnim);
+    var from = W.th * 180 / Math.PI, t0 = null, dur = 300 + 12 * Math.abs(target - from);
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setView(target); return; }
+    (function step(now) {
+      if (t0 === null) t0 = now || performance.now();
+      var p = Math.min(1, ((now || t0) - t0) / dur), e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      setView(from + (target - from) * e);
+      viewAnim = p < 1 ? requestAnimationFrame(step) : null;
+    })();
+  }
+  function markStep(n) {
+    Array.prototype.forEach.call($('stepSeg').children, function (b) { b.setAttribute('aria-pressed', String(+b.dataset.step === n)); });
+    curStep = n; var tx = STEPS[n].text;
+    $('stepCaption').innerHTML = typeof tx === 'string' ? tx : tx[MODE];
+  }
+  function goStep(n) {
+    var st = STEPS[n];
+    if (st.waves) setWaves(st.waves);
+    else if (groups().length < 1 || W.waves.filter(function (w) { return w.on && w.a > 0; }).length < 2) setWaves(MIX);
+    markStep(n); animateView(st.deg);
+  }
+  Array.prototype.forEach.call($('stepSeg').children, function (b) { b.addEventListener('click', function () { goStep(+b.dataset.step); }); });
+  $('viewSlider').addEventListener('input', function () { if (viewAnim) { cancelAnimationFrame(viewAnim); viewAnim = null; } setView(+this.value); });
+  $('toTime').addEventListener('click', function () { animateView(0); });
+  $('toFreq').addEventListener('click', function () { animateView(90); });
+
+  /* ---------------- Phase ---------------- */
+  function drawPhase() {
+    var g = prep($('phasePlot')), ctx = g.ctx, list = [];
+    for (var f = 1; f <= FM; f++) list.push(f);
+    var ax = axes(g, 0.5, FM + 0.5, -200, 200, ticks(list, { s: ' Hz' }), ticks([-180, -90, 0, 90, 180], { s: '°', all: true }));
+    groups().forEach(function (q) {
+      var d = q.ph * 180 / Math.PI, x = ax.X(q.f);
+      ctx.strokeStyle = hcolor(q.f); ctx.fillStyle = hcolor(q.f); ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x, ax.Y(0)); ctx.lineTo(x, ax.Y(d)); ctx.stroke();
+      dot(ctx, x, ax.Y(d), 5.5);
+    });
+  }
+
+  /* ---------------- Abtastfrequenz ---------------- */
+  var S = { f: 6, fs: 8 };
+  function drawSampling() {
+    var f = S.f, fs = S.fs;
+    var fr = f - Math.round(f / fs) * fs;          // Frequenz, die die Abtastwerte scheinbar zeigen (mit Vorzeichen)
+    var fa = Math.abs(fr), edge = 2 * f === fs;
+    var gone = !edge && (fa === 0 || 2 * fa === fs);   // alle Abtastwerte null: f ist ein Vielfaches von fs/2
+    var alias = !edge && !gone && fa < f - 1e-9;
+    var g = prep($('sampT')), ctx = g.ctx;
+    var ax = axes(g, 0, 1, -1.3, 1.3, ticks([0, 0.25, 0.5, 0.75, 1], { s: ' s', all: true }), ticks([-1, 0, 1]));
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = C.time; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.45;
+    curve(ctx, ax, function (t) { return Math.sin(TAU * f * t); }, 0, 1, Math.round(ax.pw * 2)); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (alias) {
+      ctx.strokeStyle = C.freq; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+      curve(ctx, ax, function (t) { return Math.sin(TAU * fr * t); }, 0, 1, Math.round(ax.pw)); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.strokeStyle = C.time; ctx.fillStyle = C.time; ctx.lineWidth = 1;
+    for (var n = 0; n < fs; n++) {
+      var t = n / fs, v = Math.sin(TAU * f * t), x = ax.X(t);
+      ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(x, ax.Y(0)); ctx.lineTo(x, ax.Y(v)); ctx.stroke();
+      ctx.globalAlpha = 1; dot(ctx, x, ax.Y(v), 4);
+    }
+
+    g = prep($('sampF')); ctx = g.ctx;
+    ax = axes(g, 0, 16, 0, 1.25, ticks([0, 2, 4, 6, 8, 10, 12, 14, 16], { s: ' Hz' }), ticks([0, 0.5, 1]));
+    var xn = ax.X(fs / 2), y0 = ax.Y(0);
+    if (fs / 2 < 16) {
+      ctx.fillStyle = C.grid; ctx.fillRect(xn, PAD.t, ax.X(16) - xn, ax.ph);
+      ctx.fillStyle = C.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      if (ax.X(16) - xn > 96) ctx.fillText('nicht erfassbar', xn + 6, PAD.t + ax.ph * 0.5);
+    }
+    ctx.strokeStyle = C.ink; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(xn + 0.5, PAD.t); ctx.lineTo(xn + 0.5, y0); ctx.stroke();
+    ctx.fillStyle = C.ink; ctx.textBaseline = 'top'; ctx.textAlign = fs / 2 > 13 ? 'right' : 'left';
+    ctx.fillText('fs/2 = ' + tick(fs / 2) + ' Hz', xn + (fs / 2 > 13 ? -6 : 6), PAD.t + 3);
+    if (!edge && !gone) {
+      ctx.fillStyle = C.freq; ctx.fillRect(ax.X(fa) - 6, ax.Y(1), 12, y0 - ax.Y(1));
+    }
+    ctx.strokeStyle = C.time; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(ax.X(f), y0); ctx.lineTo(ax.X(f), ax.Y(1)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = C.surface; dot(ctx, ax.X(f), ax.Y(1), 5); ctx.beginPath(); ctx.arc(ax.X(f), ax.Y(1), 5, 0, TAU); ctx.stroke();
+    if (alias) {   // Pfeil von der tatsächlichen zur gemessenen Frequenz
+      var ya = ax.Y(1.12), xa = ax.X(f), xb = ax.X(fa) + 10;
+      ctx.strokeStyle = C.muted; ctx.fillStyle = C.muted; ctx.lineWidth = 1.25;
+      ctx.beginPath(); ctx.moveTo(xa, ya); ctx.lineTo(xb, ya); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xb - 4, ya); ctx.lineTo(xb + 4, ya - 4); ctx.lineTo(xb + 4, ya + 4); ctx.closePath(); ctx.fill();
+    }
+    $('sampSigOut').textContent = f + ' Hz'; $('sampFsOut').textContent = fs + ' Hz';
+    var half = 'f<sub>s</sub>/2 = ' + tick(fs / 2) + ' Hz';
+    $('sampStatus').innerHTML = edge
+      ? 'Grenzfall: Die Signalfrequenz liegt genau bei ' + half + '. Bei dieser Phasenlage trifft jeder Abtastwert einen Nulldurchgang, die Schwingung ist in den Abtastwerten nicht zu sehen. Amplitude und Phase lassen sich bei genau f<sub>s</sub>/2 nicht eindeutig bestimmen, deshalb muss f<sub>s</sub> mehr als doppelt so hoch sein.'
+      : gone
+        ? (fa === 0
+          ? 'Sonderfall: ' + f + ' Hz ist ein ganzzahliges Vielfaches von f<sub>s</sub> = ' + fs + ' Hz. Jeder Abtastwert trifft dieselbe Stelle der Periode, hier einen Nulldurchgang. Die Schwingung ist in den Abtastwerten nicht zu sehen, im Spektrum erscheint kein Balken.'
+          : 'Sonderfall: ' + f + ' Hz liegt \u00fcber ' + half + ' und wird genau auf f<sub>s</sub>/2 gespiegelt. Bei dieser Phasenlage trifft jeder Abtastwert einen Nulldurchgang. Die Schwingung ist in den Abtastwerten nicht zu sehen, im Spektrum erscheint kein Balken.')
+        : alias
+          ? 'Zu langsam abgetastet: ' + f + ' Hz liegt \u00fcber ' + half + '. Die Punkte passen genauso gut zu einer Schwingung mit ' + tick(fa) + ' Hz, und diese falsche Frequenz erscheint im Spektrum (Aliasing).'
+          : 'Richtig erfasst: ' + f + ' Hz liegt unter ' + half + '. Unterhalb von f<sub>s</sub>/2 passt nur diese eine Schwingung zu den Abtastwerten.';
+  }
+  $('sampSig').addEventListener('input', function () { S.f = +this.value; schedule(); });
+  $('sampFs').addEventListener('input', function () { S.fs = +this.value; schedule(); });
+
+  /* ---------------- Wie die DFT jeden Balken findet: Signal mal Sinus und mal Kosinus ---------------- */
+  // Verwendet das Gemisch der ersten Abbildung. Diskret: dieselben 32 Abtastwerte; kontinuierlich: 512 Punkte, durchgezogen gezeichnet.
+  var HMAX = 512, HFMAX = 12;
+  var H = { noise: 0, probe: 3, n: NS, dirty: true, s: new Float64Array(HMAX), S: new Float64Array(HFMAX + 1), C: new Float64Array(HFMAX + 1) };
+  var hNoiseArr = new Float64Array(HMAX);   // festes Pseudo-Rauschen, damit das Bild ruhig bleibt
+  (function () {
+    var seed = 20241;
+    function rnd() { seed = (seed * 1664525 + 1013904223) >>> 0; return (seed + 0.5) / 4294967296; }
+    for (var i = 0; i < HMAX; i++) hNoiseArr[i] = Math.sqrt(-2 * Math.log(rnd())) * Math.cos(TAU * rnd());
+  })();
+  function hCompute() {
+    var gs = groups(), N = H.n = MODE === 'd' ? NS : HMAX, n, f;
+    for (n = 0; n < N; n++) H.s[n] = sigAt(gs, n / N) + H.noise * hNoiseArr[n];
+    for (f = 1; f <= HFMAX; f++) {
+      var a = 0, b = 0;
+      for (n = 0; n < N; n++) { a += H.s[n] * Math.sin(TAU * f * n / N); b += H.s[n] * Math.cos(TAU * f * n / N); }
+      H.S[f] = 2 * a / N; H.C[f] = 2 * b / N;
+    }
+    H.dirty = false;
+  }
+  function hAmp(f) { return Math.hypot(H.S[f], H.C[f]); }
+  function hReadout() {
+    var f = H.probe, a = hAmp(f), w = MODE === 'd' ? 'Produkte' : 'Flächen';
+    var z = function (v) { return num(v + 0, 2).replace(/^−0,00$/, '0,00'); };
+    $('hNoiseOut').textContent = num(H.noise, 2);
+    $('hProbe').value = f; $('hProbeOut').textContent = f + ' Hz';
+    $('hProbe2').value = f; $('hProbe2Out').textContent = f + ' Hz';
+    $('hS').textContent = z(H.S[f]); $('hC').textContent = z(H.C[f]); $('hMatch').textContent = num(a, 2);
+    var cc = Math.abs(H.C[f]) < 1e-9 ? 0 : H.C[f], ss = Math.abs(H.S[f]) < 1e-9 ? 0 : H.S[f];   // Rundungsreste entfernen, sonst kippt 180\u00b0 zu -180\u00b0
+    $('hPh').textContent = a < 0.02 ? '\u2013' : tick(Math.round(Math.atan2(cc, ss) * 180 / Math.PI)) + '\u00b0';
+    $('hText').textContent = a < 0.02
+      ? 'Positive und negative ' + w + ' heben sich in beiden Vergleichen auf: Das Signal enth\u00e4lt keinen Anteil bei ' + f + '\u00a0Hz.'
+      : a < 0.245
+        ? 'Es bleibt ein kleiner Rest: Das Signal enth\u00e4lt einen schwachen Anteil bei ' + f + '\u00a0Hz.'
+        : 'Es bleibt ein gro\u00dfer Rest: Das Signal enth\u00e4lt einen deutlichen Anteil bei ' + f + '\u00a0Hz.';
+  }
+  var geoH = null;
+  function drawHand() {
+    if (H.dirty) hCompute();
+    hReadout();
+    var D = MODE === 'd', N = H.n, n, mx = 0, f = H.probe;
+    for (n = 0; n < N; n++) mx = Math.max(mx, Math.abs(H.s[n]));
+    var r = Math.max(1.3, mx * 1.08), s1 = r > 2.4 ? 2 : 1;
+    var tt = ticks([0, 0.25, 0.5, 0.75, 1], { s: ' s', all: true }), yt = ticks([-s1, 0, s1]);
+    // Signal und die beiden Testschwingungen
+    var g = prep($('hSig')), ctx = g.ctx, ax = axes(g, 0, 1, -r, r, tt, yt);
+    ctx.strokeStyle = C.freq; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.85; ctx.lineJoin = 'round';
+    curve(ctx, ax, function (t) { return Math.sin(TAU * f * t); }, 0, 1, Math.round(ax.pw * 2)); ctx.stroke();
+    ctx.setLineDash([5, 4]);
+    curve(ctx, ax, function (t) { return Math.cos(TAU * f * t); }, 0, 1, Math.round(ax.pw * 2)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1; ctx.strokeStyle = C.time; ctx.fillStyle = C.time; ctx.lineWidth = D ? 1.25 : 1.75;
+    ctx.globalAlpha = D ? 0.5 : 1;
+    ctx.beginPath();
+    for (n = 0; n < N; n++) { if (n) ctx.lineTo(ax.X(n / N), ax.Y(H.s[n])); else ctx.moveTo(ax.X(0), ax.Y(H.s[0])); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+    for (n = 0; D && n < N; n++) dot(ctx, ax.X(n / N), ax.Y(H.s[n]), 3);
+    // Produkt mit Sinus und mit Kosinus
+    [['hProdS', Math.sin], ['hProdC', Math.cos]].forEach(function (pc) {
+      var g2 = prep($(pc[0])), c2 = g2.ctx, a2 = axes(g2, 0, 1, -r, r, tt, yt), y0 = a2.Y(0), m, v, y;
+      var val = function (i) { return H.s[i] * pc[1](TAU * f * i / N); };
+      if (D) {
+        var bw = Math.max(1, a2.pw / N * 0.7);
+        c2.globalAlpha = 0.8;
+        for (m = 0; m < N; m++) {
+          v = val(m); y = a2.Y(v);
+          c2.fillStyle = v >= 0 ? C.pos : C.neg;
+          c2.fillRect(a2.X(m / N) - bw / 2, Math.min(y, y0), bw, Math.abs(y - y0));
+        }
+      } else {
+        var trace = function () {
+          c2.beginPath();
+          for (var i = 0; i < N; i++) { if (i) c2.lineTo(a2.X(i / N), a2.Y(val(i))); else c2.moveTo(a2.X(0), a2.Y(val(0))); }
+        };
+        [[C.pos, PAD.t, y0 - PAD.t], [C.neg, y0, g2.h - PAD.b - y0]].forEach(function (q) {
+          c2.save(); c2.beginPath(); c2.rect(PAD.l, q[1], a2.pw, q[2]); c2.clip();
+          trace(); c2.lineTo(a2.X((N - 1) / N), y0); c2.lineTo(a2.X(0), y0); c2.closePath();
+          c2.fillStyle = q[0]; c2.globalAlpha = 0.5; c2.fill(); c2.restore();
+        });
+        c2.strokeStyle = C.ink; c2.lineWidth = 1; c2.globalAlpha = 0.7; trace(); c2.stroke();
+      }
+      c2.globalAlpha = 1;
+    });
+    // Spektrum: Amplitude aus beiden Anteilen
+    g = prep($('hSpec')); ctx = g.ctx; mx = 0;
+    for (var k = 1; k <= HFMAX; k++) mx = Math.max(mx, hAmp(k));
+    ax = axes(g, 0.5, HFMAX + 0.5, 0, Math.max(1.1, mx * 1.15), ticks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], g.w > 420 ? { s: ' Hz' } : null), ticks([0, 0.5, 1]));
+    geoH = ax;
+    var band = ax.pw / HFMAX, w = Math.max(2, band * 0.56), y0 = ax.Y(0), y;
+    ctx.fillStyle = C.grid; ctx.fillRect(ax.X(f) - band / 2, PAD.t, band, ax.ph);
+    for (k = 1; k <= HFMAX; k++) {
+      y = ax.Y(hAmp(k));
+      ctx.fillStyle = C.freq; ctx.globalAlpha = k === f ? 1 : 0.45;
+      ctx.fillRect(ax.X(k) - w / 2, Math.min(y, y0 - 1.5), w, Math.max(1.5, y0 - y));
+    }
+    ctx.globalAlpha = 1; ctx.strokeStyle = C.ink; ctx.lineWidth = 1.5;
+    var py = Math.min(ax.Y(hAmp(f)), y0 - 1.5);
+    ctx.strokeRect(ax.X(f) - w / 2 - 1.5, py - 1.5, w + 3, y0 - py + 1.5);
+    // Signal mal rotierender Zeiger in der komplexen Ebene; Schwerpunkt = (C - iS)/2
+    g = prep($('zPlot')); ctx = g.ctx;
+    var cx = g.w / 2, cy = g.h / 2, R = Math.min(g.w, g.h) / 2 - 20, sc = R / r;
+    ctx.lineWidth = 1; ctx.strokeStyle = C.grid;
+    for (var rr = 0.5; rr <= r; rr += 0.5) { ctx.beginPath(); ctx.arc(cx, cy, rr * sc, 0, TAU); ctx.stroke(); }
+    ctx.strokeStyle = C.line;
+    ctx.beginPath(); ctx.moveTo(cx - R - 8, cy); ctx.lineTo(cx + R + 8, cy); ctx.moveTo(cx, cy - R - 8); ctx.lineTo(cx, cy + R + 8); ctx.stroke();
+    ctx.fillStyle = C.muted; ctx.textBaseline = 'bottom'; ctx.textAlign = 'right';
+    ctx.fillText('Re', cx + R + 8, cy - 3);
+    ctx.textAlign = 'left'; ctx.fillText('Im', cx + 4, cy - R + 2);
+    ctx.textBaseline = 'top'; ctx.fillText('1', cx + sc + 3, cy + 3);
+    var wp = function (i) { var v = H.s[i], a = TAU * f * i / N; return [cx + v * Math.cos(a) * sc, cy + v * Math.sin(a) * sc]; };
+    ctx.strokeStyle = C.time; ctx.fillStyle = C.time; ctx.lineJoin = 'round';
+    ctx.lineWidth = D ? 1 : 1.8; ctx.globalAlpha = D ? 0.3 : 0.9;
+    ctx.beginPath();
+    for (n = 0; n < N; n++) { var q = wp(n); if (n) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }
+    ctx.stroke(); ctx.globalAlpha = 0.9;
+    for (n = 0; D && n < N; n++) { q = wp(n); dot(ctx, q[0], q[1], 4); }
+    ctx.globalAlpha = 1;
+    var zx = cx + H.C[f] / 2 * sc, zy = cy + H.S[f] / 2 * sc;
+    ctx.strokeStyle = C.freq; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(zx, zy); ctx.stroke(); ctx.lineCap = 'butt';
+    ctx.fillStyle = C.freq; ctx.strokeStyle = C.surface; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(zx, zy, 6.5, 0, TAU); ctx.fill(); ctx.stroke();
+  }
+  var hTimer = null;
+  function stopHSweep() {
+    if (hTimer) clearInterval(hTimer); hTimer = null;
+    $('hSweep').setAttribute('aria-pressed', 'false'); $('hSweep').textContent = 'Alle Frequenzen durchlaufen';
+  }
+  function setProbe(f) { H.probe = Math.max(1, Math.min(HFMAX, f)); schedule(); }
+  $('hNoise').addEventListener('input', function () { H.noise = +this.value; H.dirty = true; schedule(); });
+  $('hProbe').addEventListener('input', function () { stopHSweep(); setProbe(+this.value); });
+  $('hProbe2').addEventListener('input', function () { stopHSweep(); setProbe(+this.value); });
+  $('hSpec').addEventListener('click', function (ev) {
+    if (!geoH) return;
+    var rc = this.getBoundingClientRect();
+    stopHSweep(); setProbe(Math.round(0.5 + (ev.clientX - rc.left - PAD.l) / geoH.pw * HFMAX));
+  });
+  $('hToMixer').addEventListener('click', function () { $('mixer').scrollIntoView({ block: 'center' }); $('w0f').focus({ preventScroll: true }); });
+  $('hSweep').addEventListener('click', function () {
+    if (hTimer) { stopHSweep(); return; }
+    setProbe(1);
+    this.setAttribute('aria-pressed', 'true'); this.textContent = 'Stopp';
+    hTimer = setInterval(function () {
+      if (H.probe >= HFMAX) { stopHSweep(); return; }
+      setProbe(H.probe + 1);
+    }, 600);
+  });
+
+  /* ---------------- Ausprobieren: Signal bauen ---------------- */
+  var KMAX = 31, YMAX_A = 1.4;
+  var SHAPES = {
+    square: {
+      amp: function (k) { return k % 2 ? 4 / (Math.PI * k) : 0; },
+      f: function (t) { return Math.sin(TAU * t) >= 0 ? 1 : -1; },
+      note: '<b>Rechteck:</b> nur ungeradzahlige Vielfache der Grundfrequenz (1, 3, 5 … Hz), jede schwächer als die vorige. Schwierig sind die Sprünge: Sie brauchen sehr hohe Frequenzen. An den Kanten bleibt auch mit vielen Schwingungen ein Überschwinger, er wird nur schmaler (Gibbs-Phänomen).'
+    },
+    saw: {
+      amp: function (k) { return (k % 2 ? 1 : -1) * 2 / (Math.PI * k); },
+      f: function (t) { var u = (t + 0.5) % 1; return 2 * u - 1; },
+      note: '<b>Sägezahn:</b> Alle ganzzahligen Vielfachen der Grundfrequenz sind beteiligt (1, 2, 3 … Hz), die Amplitude fällt mit 1/Frequenz. Auch hier macht der Sprung die hohen Frequenzen nötig.'
+    },
+    tri: {
+      amp: function (k) { return k % 2 ? (((k - 1) / 2) % 2 ? -1 : 1) * 8 / (Math.PI * Math.PI * k * k) : 0; },
+      f: function (t) { return 2 / Math.PI * Math.asin(Math.sin(TAU * t)); },
+      note: '<b>Dreieck:</b> dieselben Frequenzen wie beim Rechteck, aber die Amplituden fallen viel schneller ab. Eine Form ohne Sprünge ist nach zwei, drei Schwingungen fast fertig.'
+    },
+    own: {
+      note: '<b>Eigenes Signal:</b> Zuerst &bdquo;Alle Balken löschen&ldquo;, dann einen einzelnen Balken nach oben ziehen und beobachten, wie sich die Kurve ändert. Danach zwei benachbarte Balken, dann eine tiefe und eine hohe Frequenz. Wer einen Balken einer Zielform zieht, wechselt automatisch hierher.'
+    }
+  };
+  var A = { amp: new Float64Array(KMAX + 1), K: 5, mode: 'square', parts: true, hover: null, sel: 1, focus: false };
+
+  function markShape(name) {
+    Array.prototype.forEach.call($('shapeSeg').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.shape === name)); });
+    $('clearBtn').hidden = name !== 'own';
+    $('legTarget').hidden = name === 'own';
+    $('noteA').innerHTML = SHAPES[name].note;
+  }
+  function loadShape(name) {
+    if (name !== 'own' && A.mode === 'own') setK(5);   // aus dem eigenen Signal zur\u00fcck: wieder mit wenigen Schwingungen beginnen
+    A.mode = name;
+    if (name !== 'own') for (var k = 1; k <= KMAX; k++) A.amp[k] = SHAPES[name].amp(k);
+    else setK(KMAX);
+    markShape(name); changedA();
+  }
+  function setK(k) { A.K = k; $('kSlider').value = k; $('kOut').textContent = k + ' Hz'; }
+  function sumA(t) {
+    var s = 0;
+    for (var k = 1; k <= A.K; k++) if (A.amp[k]) s += A.amp[k] * Math.sin(TAU * k * t);
+    return s;
+  }
+  function drawTimeA() {
+    var g = prep($('timeA')), ctx = g.ctx;
+    var ax = axes(g, 0, 2, -1.6, 1.6, ticks([0, 0.5, 1, 1.5, 2], { s: ' s', all: true }), ticks([-1, 0, 1]));
+    var n = Math.round(ax.pw * 2);
+    var hi = A.hover != null ? A.hover : (A.focus ? A.sel : null);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(PAD.l, 0, ax.pw, g.h - PAD.b); ctx.clip();
+    if (A.parts) {
+      for (var k = 1; k <= A.K; k++) {
+        if (Math.abs(A.amp[k]) < 0.0005 || k === hi) continue;
+        ctx.strokeStyle = hcolor(k); ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+        (function (k) { curve(ctx, ax, function (t) { return A.amp[k] * Math.sin(TAU * k * t); }, 0, 2, n); })(k);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (A.mode !== 'own') {
+      ctx.strokeStyle = C.muted; ctx.lineWidth = 1.25; ctx.setLineDash([5, 4]);
+      curve(ctx, ax, SHAPES[A.mode].f, 0, 2, n * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.strokeStyle = C.time; ctx.lineWidth = 2.25; ctx.lineJoin = 'round';
+    curve(ctx, ax, sumA, 0, 2, n); ctx.stroke();
+    if (hi != null && hi <= A.K && Math.abs(A.amp[hi]) >= 0.0005) {
+      ctx.strokeStyle = hcolor(hi); ctx.lineWidth = 2.25;
+      curve(ctx, ax, function (t) { return A.amp[hi] * Math.sin(TAU * hi * t); }, 0, 2, n); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  var geoA = null;
+  function drawSpecA() {
+    var g = prep($('specA')), ctx = g.ctx;
+    var ax = axes(g, 0.5, KMAX + 0.5, 0, YMAX_A, ticks([1, 5, 10, 15, 20, 25, 30], { s: ' Hz' }), ticks([0, 0.5, 1]));
+    geoA = { ax: ax, h: g.h };
+    var band = ax.pw / KMAX, bw = Math.max(2, band * 0.64);
+    var hi = A.hover != null ? A.hover : (A.focus ? A.sel : null);
+    for (var k = 1; k <= KMAX; k++) {
+      var m = Math.min(Math.abs(A.amp[k]), YMAX_A);
+      var x = ax.X(k) - bw / 2, y = ax.Y(m), y0 = ax.Y(0);
+      if (k === hi) { ctx.fillStyle = C.grid; ctx.fillRect(ax.X(k) - band / 2, PAD.t, band, ax.ph); }
+      if (m < 0.0005) { ctx.fillStyle = C.line; ctx.fillRect(x, y0 - 1.5, bw, 1.5); continue; }
+      if (k <= A.K) {
+        ctx.fillStyle = hcolor(k); ctx.fillRect(x, y, bw, y0 - y);
+      } else {
+        ctx.strokeStyle = C.muted; ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+        ctx.strokeRect(x + 0.5, y + 0.5, bw - 1, y0 - y - 1); ctx.setLineDash([]);
+      }
+    }
+    if (hi != null) {
+      ctx.fillStyle = C.ink; ctx.textAlign = hi > KMAX - 8 ? 'right' : 'left'; ctx.textBaseline = 'top';
+      var tx = hi > KMAX - 8 ? ax.X(hi) - band : ax.X(hi) + band;
+      var off = hi > A.K && Math.abs(A.amp[hi]) >= 0.0005 ? '  (noch nicht addiert)' : '';
+      ctx.fillText(hi + ' Hz  Amplitude ' + num(Math.abs(A.amp[hi]), 2) + off, Math.max(PAD.l + 2, Math.min(g.w - PAD.r - 2, tx)), PAD.t + 2);
+    }
+  }
+  function statA() {
+    var used = 0;
+    for (var k = 1; k <= A.K; k++) if (Math.abs(A.amp[k]) >= 0.0005) used++;
+    var s = used + (used === 1 ? ' Sinusschwingung' : ' Sinusschwingungen') + ' aktiv';
+    if (A.mode !== 'own') {
+      var f = SHAPES[A.mode].f, e = 0, p = 0, n = 2000;
+      for (var i = 0; i < n; i++) { var t = (i + 0.5) / n, d = sumA(t) - f(t); e += d * d; p += f(t) * f(t); }
+      s += '  ·  mittlere Abweichung vom Ziel (Effektivwert): ' + num(100 * Math.sqrt(e / p), 1) + ' %';
+    }
+    $('statA').textContent = s;
+  }
+  function changedA() { statA(); updateSound(); schedule(); }
+
+  Array.prototype.forEach.call($('shapeSeg').children, function (b) {
+    b.addEventListener('click', function () { loadShape(b.dataset.shape); });
+  });
+  $('kSlider').addEventListener('input', function () { stopStepping(); setK(+this.value); changedA(); });
+  $('partsChk').addEventListener('change', function () { A.parts = this.checked; schedule(); });
+  $('clearBtn').addEventListener('click', function () { A.amp.fill(0); changedA(); });
+
+  var stepTimer = null;
+  function stopStepping() {
+    if (stepTimer) { clearInterval(stepTimer); stepTimer = null; }
+    $('stepBtn').setAttribute('aria-pressed', 'false'); $('stepBtn').textContent = 'Nacheinander hinzufügen';
+  }
+  $('stepBtn').addEventListener('click', function () {
+    if (stepTimer) { stopStepping(); return; }
+    setK(1); changedA();
+    this.setAttribute('aria-pressed', 'true'); this.textContent = 'Stopp';
+    stepTimer = setInterval(function () {
+      if (A.K >= KMAX) { stopStepping(); return; }
+      var k = A.K + 1;
+      while (k < KMAX && Math.abs(A.amp[k]) < 0.0005) k++;
+      setK(k); changedA();
+    }, 550);
+  });
+
+  function specAPoint(ev) {
+    var r = $('specA').getBoundingClientRect(), ax = geoA.ax;
+    var x = ev.clientX - r.left, y = ev.clientY - r.top;
+    var k = Math.round(0.5 + (x - PAD.l) / ax.pw * KMAX);
+    k = Math.max(1, Math.min(KMAX, k));
+    var m = (1 - (y - PAD.t) / ax.ph) * YMAX_A;
+    m = Math.max(0, Math.min(YMAX_A, m)); if (m < 0.03) m = 0;
+    return { k: k, m: m };
+  }
+  function editBar(k, m) {
+    if (A.mode !== 'own') { A.mode = 'own'; markShape('own'); }
+    stopStepping();
+    A.amp[k] = (A.amp[k] < 0 ? -1 : 1) * m;
+    if (k > A.K) setK(k);
+    changedA();
+  }
+  var dragging = false;
+  $('specA').addEventListener('pointerdown', function (ev) {
+    if (!geoA) return;
+    dragging = true; this.setPointerCapture(ev.pointerId);
+    var p = specAPoint(ev); A.hover = p.k; A.sel = p.k; editBar(p.k, p.m);
+  });
+  $('specA').addEventListener('pointermove', function (ev) {
+    if (!geoA) return;
+    var p = specAPoint(ev);
+    if (dragging) { A.hover = p.k; A.sel = p.k; editBar(p.k, p.m); }
+    else if (A.hover !== p.k) { A.hover = p.k; schedule(); }
+  });
+  function endDrag() { dragging = false; }
+  $('specA').addEventListener('pointerup', endDrag);
+  $('specA').addEventListener('pointercancel', endDrag);
+  $('specA').addEventListener('pointerleave', function () { if (!dragging) { A.hover = null; schedule(); } });
+  $('specA').addEventListener('focus', function () { A.focus = true; schedule(); });
+  $('specA').addEventListener('blur', function () { A.focus = false; schedule(); });
+  $('specA').addEventListener('keydown', function (ev) {
+    var k = A.sel, m = Math.abs(A.amp[k]);
+    if (ev.key === 'ArrowLeft') A.sel = Math.max(1, k - 1);
+    else if (ev.key === 'ArrowRight') A.sel = Math.min(KMAX, k + 1);
+    else if (ev.key === 'ArrowUp') editBar(k, Math.min(YMAX_A, m + 0.05));
+    else if (ev.key === 'ArrowDown') editBar(k, Math.max(0, m - 0.05));
+    else return;
+    ev.preventDefault(); A.hover = null; schedule();
+  });
+
+  // Ton: dieselbe Summe, 220-mal schneller abgespielt
+  var audio = null;
+  function updateSound() {
+    if (!audio) return;
+    var re = new Float32Array(KMAX + 1), im = new Float32Array(KMAX + 1), any = false;
+    for (var k = 1; k <= A.K; k++) { im[k] = A.amp[k]; if (Math.abs(A.amp[k]) >= 0.0005) any = true; }
+    if (any) audio.osc.setPeriodicWave(audio.ctx.createPeriodicWave(re, im));
+    audio.gain.gain.setTargetAtTime(any ? 0.12 : 0, audio.ctx.currentTime, 0.02);
+  }
+  $('soundBtn').addEventListener('click', function () {
+    if (audio) {
+      audio.gain.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.02);
+      var a = audio; audio = null;
+      setTimeout(function () { try { a.osc.stop(); a.ctx.close(); } catch (e) {} }, 150);
+      this.setAttribute('aria-pressed', 'false'); this.textContent = 'Anhören';
+      return;
+    }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { this.textContent = 'Kein Ton in diesem Browser'; this.disabled = true; return; }
+    var ctx = new AC(), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.frequency.value = 220; gain.gain.value = 0;
+    osc.connect(gain); gain.connect(ctx.destination); osc.start();
+    audio = { ctx: ctx, osc: osc, gain: gain };
+    updateSound();
+    this.setAttribute('aria-pressed', 'true'); this.textContent = 'Ton aus';
+  });
+
+  /* ---------------- Umschalten: diskret / kontinuierlich ---------------- */
+  function setMode(m) {
+    MODE = m === 'c' ? 'c' : 'd';
+    $('page').setAttribute('data-mode', MODE);
+    $('mode-d').setAttribute('aria-pressed', String(MODE === 'd'));
+    $('mode-c').setAttribute('aria-pressed', String(MODE === 'c'));
+    markStep(curStep);
+    H.dirty = true; schedule();
+  }
+  $('mode-d').addEventListener('click', function () { setMode('d'); });
+  $('mode-c').addEventListener('click', function () { setMode('c'); });
+
+  /* ---------------- Zeichenschleife ---------------- */
+  var pending = false;
+  function schedule() {
+    if (pending) return; pending = true;
+    requestAnimationFrame(function () {
+      pending = false; readColors();
+      draw3D(); drawPhase(); drawSampling(); drawHand(); drawTimeA(); drawSpecA();
+    });
+  }
+  if (window.ResizeObserver) {
+    var ro = new ResizeObserver(schedule);
+    ['view3d', 'phasePlot', 'sampT', 'sampF', 'hSig', 'zPlot', 'hProdS', 'hProdC', 'hSpec', 'timeA', 'specA'].forEach(function (id) { ro.observe($(id)); });
+  }
+  window.addEventListener('resize', schedule);
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', schedule);
+  }
+  new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+
+  syncW(); setMode('c');   // Start immer kontinuierlich, die DFT wird per Umschalter gezeigt
+  loadShape('square');
+})();
+</script>
